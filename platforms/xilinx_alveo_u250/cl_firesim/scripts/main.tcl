@@ -32,6 +32,29 @@ delete_files [list ${root_dir}/vivado_proj/firesim.bit]
 create_project -force firesim ${root_dir}/vivado_proj -part $part
 set_property board_part $board_part [current_project]
 
+set_param general.maxThreads 32
+
+set vh_file_path "${root_dir}/design/vortex_defines_list.f"
+set vh_file [open $vh_file_path r]
+while {[gets $vh_file addFile] != -1} {
+  # set addFile [retrieveVersionedFile $addFile $vivado_version]
+  # check_file_exists $addFile
+  add_files $addFile
+  set_property IS_GLOBAL_INCLUDE 1 [get_files $addFile]
+}
+close $vh_file
+
+set pkg_file_path "${root_dir}/design/vortex_pkgs_list.f"
+set pkg_file [open $pkg_file_path r]
+# Read the file line by line
+while {[gets $pkg_file addFile] != -1} {
+  # set addFile [retrieveVersionedFile $addFile $vivado_version]
+  # check_file_exists $addFile
+  add_files $addFile
+  set_property IS_GLOBAL_INCLUDE 1 [get_files $addFile]
+}
+close $pkg_file
+
 # Loading all the verilog files
 foreach addFile [list ${root_dir}/design/axi_tieoff_master.v ${root_dir}/design/overall_fpga_top.v ${root_dir}/design/FireSim-generated.sv ${root_dir}/design/FireSim-generated.defines.vh] {
   set addFile [retrieveVersionedFile $addFile $vivado_version]

@@ -72,4 +72,25 @@ fi
 
 # run build
 cd $CL_DIR
+CONFIG_NAME=$(basename "$CL_DIR")
+CONFIG_NAME="${CONFIG_NAME:3}"
+echo "====================================="
+echo "clear files"
+echo "====================================="
+> $CL_DIR/design/vortex_defines_list.f
+> $CL_DIR/design/vortex_pkgs_list.f
+SOURCE_DESIGN="../../../../sim/generated-src/xilinx_alveo_u250/$CONFIG_NAME"
+echo "source directory $SOURCE_DESIGN"
+
+for file in "$SOURCE_DESIGN"/*; do
+    if [[ "$file" == *"pkg"* || "$file" == *"defs_div"* ]]; then
+        cp "$file" $CL_DIR/design/
+        echo "$CL_DIR/design/$(basename $file)" >> $CL_DIR/design/vortex_pkgs_list.f
+    fi
+    if [[ "$file" == *"VX_"*".vh" || "$file" == *".svh" ]]; then
+        cp "$file" $CL_DIR/design/
+        echo "$CL_DIR/design/$(basename $file)" >> $CL_DIR/design/vortex_defines_list.f
+    fi
+done
+
 vivado -mode batch -source $CL_DIR/scripts/main.tcl -tclargs $FREQUENCY $STRATEGY $BOARD

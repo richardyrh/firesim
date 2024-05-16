@@ -23,7 +23,7 @@ private[midas] class MidasTransforms extends Transform {
       new ResolveAndCheck,
       HoistStopAndPrintfEnables,
       firrtl.passes.RemoveValidIf,
-      new firrtl.transforms.ConstantPropagation,
+      // new firrtl.transforms.ConstantProp,
       firrtl.passes.SplitExpressions,
       // SplitExpressions invalidates ResolveKinds which can lead to missed CSE opportunities since
       // identical expressions may have different Kinds
@@ -99,6 +99,7 @@ private[midas] class MidasTransforms extends Transform {
       new EmitFirrtl("post-gen-sram-models.fir"),
       new ResolveAndCheck,
       new SimulationMapping(state.circuit.main),
+      new firrtl.transforms.ConstantPropagation,
       xilinx.HostSpecialization,
       new ResolveAndCheck)
       (xforms foldLeft state)((in, xform) =>
