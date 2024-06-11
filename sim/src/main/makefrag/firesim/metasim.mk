@@ -20,7 +20,7 @@ autocounter_args = +autocounter-readrate=1000 +autocounter-filename-base=AUTOCOU
 # Neglecting this +arg will make the simulator use the same step size as on the
 # FPGA. This will make ML simulation more closely match results seen on the
 # FPGA at the expense of dramatically increased target runtime
-serial_args = +fesvr-step-size=128
+serial_args = +fesvr-step-size=16
 #serial_args =
 
 COMMON_SIM_ARGS := $(COMMON_SIM_ARGS) $(serial_args) $(nic_args) $(tracer_args) $(blkdev_args) $(autocounter_args)

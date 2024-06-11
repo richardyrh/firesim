@@ -28,6 +28,17 @@ design_h  := $(GEN_DIR)/$(GEN_FILE_BASENAME).const.h
 design_vh := $(GEN_DIR)/$(GEN_FILE_BASENAME).const.vh
 driver_h = $(foreach t, $(DRIVER), $(wildcard $(dir $(t))/*.h))
 
+vortex_vh := $(wildcard $(GEN_DIR)/VX_*.vh) $(wildcard $(GEN_DIR)/*.svh)
+vortex_pkg := $(wildcard $(GEN_DIR)/*pkg*) $(wildcard $(GEN_DIR)/*defs_div*)
+
+PRIORITY_PATTERNS := VX_scope.vh VX_platform.vh VX_define.vh VX_config.vh
+PRIORITY_FILES := $(foreach pattern, $(PRIORITY_PATTERNS), $(filter %$(pattern), $(vortex_vh)))
+NON_PRIORITY_FILES := $(filter-out $(PRIORITY_FILES), $(vortex_vh))
+
+vortex_vh := $(PRIORITY_FILES) $(NON_PRIORITY_FILES)
+$(info PRIORITY [${PRIORITY_FILES}])
+$(info NON PRIORITY [${NON_PRIORITY_FILES}])
+
 bridge_h := $(wildcard $(bridge_dir)/*.h) $(wildcard $(core_dir)/*.h)
 bridge_cc := $(wildcard $(bridge_dir)/*.cc) $(wildcard $(core_dir)/*.cc)
 bridge_o := $(patsubst $(midas_dir)/%.cc, $(GEN_DIR)/%.o, $(bridge_cc))
@@ -50,7 +61,7 @@ $(OUT_DIR)/$(DRIVER_NAME)-$(PLATFORM): $(DRIVER) $(driver_h) $(platform_o) $(bri
 driver: $(OUT_DIR)/$(DRIVER_NAME)-$(PLATFORM)
 
 # Sources for building MIDAS-level simulators. Must be defined before sources VCS/Verilator Makefrags
-override CXXFLAGS += -std=c++20
+override CXXFLAGS += -std=c++2a
 
 # Models of FPGA primitives that are used in host-level sim, but not in FPGATop
 sim_fpga_resource_models := $(v_dir)/BUFGCE.v
@@ -59,7 +70,7 @@ emul_dir   := $(midas_dir)/emul
 emul_h     := $(driver_h) $(bridge_h) $(emul_dir)/simif_emul.h $(emul_dir)/mmio.h $(emul_dir)/mm.h $(midas_dir)/entry.h
 # This includes c sources and static libraries
 emul_cc    := $(DRIVER) $(bridge_cc) $(emul_dir)/simif_emul.cc $(emul_dir)/mmio.cc $(emul_dir)/mm.cc $(emul_dir)/dpi.cc $(midas_dir)/entry.cc
-emul_v     := $(design_vh) $(DESIGN_V) $(sim_fpga_resource_models)
+emul_v     := $(vortex_vh) $(vortex_pkg) $(design_vh) $(DESIGN_V) $(sim_fpga_resource_models)
 
 TB := emul
 CLOCK_PERIOD ?= 1.0
@@ -77,6 +88,10 @@ SIM_PREPROC_DEFINES = \
 
 sim_wrapper_v := $(v_dir)/top.sv
 sim_harness := $(midas_dir)/simif_emul_all.cc
+
+copy-bb: $(DESIGN_V)
+	sed -i '/\.cpp$$/d' $(GEN_DIR)/firrtl_black_box_resource_files.f
+	grep -sh ^ $(GEN_DIR)/firrtl_black_box_resource_files.f | xargs cat >> $(DESIGN_V)
 
 include rtlsim/Makefrag-verilator
 
@@ -96,7 +111,7 @@ vcs-debug: $(OUT_DIR)/$(DRIVER_NAME)-debug
 vcs-post-synth: $(OUT_DIR)/$(DRIVER_NAME)-post-synth
 vcs-post-synth-debug: $(OUT_DIR)/$(DRIVER_NAME)-post-synth-debug
 
-.PHONY: vcs vcs-debug vcs-post-synth vcs-post-synth-debug
+.PHONY: vcs vcs-debug vcs-post-synth vcs-post-synth-debug copy-bb
 
 include rtlsim/Makefrag-xcelium
 

@@ -457,6 +457,7 @@ def main(args: argparse.Namespace) -> None:
     env.connection_attempts = 10
     # we elastically spin instances up/down. we can easily get re-used IPs with
     # different keys. also, probably won't get MITM'd
+    env.use_ssh_config = True
     env.disable_known_hosts = True
 
     rootLogger.info("FireSim Manager. Docs: https://docs.fires.im\nRunning: %s\n", str(args.task))

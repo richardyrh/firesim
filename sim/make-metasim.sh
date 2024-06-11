@@ -1,0 +1,1 @@
+make SIM_BINARY=/scratch/yrh/vxsw/tests/regression/bad_apple/kernel.radiance.elf TARGET_PROJECT=firesim DESIGN=FireSim PLATFORM=xilinx_alveo_u250 PLATFORM_CONFIG=WithPrintfSynthesis_BaseXilinxAlveoU250Config TARGET_CONFIG=FireSimRadianceClusterSynConfig LOADMEM=1 run-vcs-debug

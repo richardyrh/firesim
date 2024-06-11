@@ -22,6 +22,7 @@ vcs_flags := \
 	$(if $(LDFLAGS),-LDFLAGS "$(LDFLAGS)",) \
 	-sverilog \
 	-assert svaext \
+	+incdir+$(GEN_DIR) \
 	$(SIM_PREPROC_DEFINES) \
 	$(vcs_flags)
 
@@ -44,13 +45,13 @@ vcs_debug_flags := \
 	+define+FSDB \
 	+define+DEBUG
 
-$(OUT_DIR)/$(DRIVER_NAME): $(vcs_v) $(vcs_cc) $(emul_h)
+$(OUT_DIR)/$(DRIVER_NAME): $(vcs_v) $(vcs_cc) $(emul_h) copy-bb
 	mkdir -p $(OUT_DIR)
 	rm -rf $(GEN_DIR)/$(DRIVER_NAME).csrc
 	rm -rf $(OUT_DIR)/$(DRIVER_NAME).daidir
 	$(VCS) $(vcs_rtl_flags) -o $@ $(vcs_v) $(vcs_cc)
 
-$(OUT_DIR)/$(DRIVER_NAME)-debug: $(vcs_v) $(vcs_cc) $(emul_h)
+$(OUT_DIR)/$(DRIVER_NAME)-debug: $(vcs_v) $(vcs_cc) $(emul_h) copy-bb
 	mkdir -p $(OUT_DIR)
 	rm -rf $(GEN_DIR)/$(DRIVER_NAME)-debug.csrc
 	rm -rf $(OUT_DIR)/$(DRIVER_NAME)-debug.daidir
