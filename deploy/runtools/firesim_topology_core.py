@@ -5,20 +5,14 @@ topology.
 from __future__ import annotations
 
 from runtools.user_topology import UserTopologies
-from runtools.firesim_topology_elements import (
-    FireSimSwitchNode,
-    FireSimServerNode,
-    FireSimPipeNode,
-)
+from runtools.firesim_topology_elements import FireSimSwitchNode, FireSimServerNode
 
 from typing import List, Callable, Optional, Union, TYPE_CHECKING
-
 if TYPE_CHECKING:
     from runtools.firesim_topology_elements import FireSimNode
 
-
 class FireSimTopology(UserTopologies):
-    """A FireSim Topology consists of a list of root FireSimNodes, which
+    """ A FireSim Topology consists of a list of root FireSimNodes, which
     connect to other FireSimNodes.
 
     This is designed to model tree-like topologies."""
@@ -35,7 +29,7 @@ class FireSimTopology(UserTopologies):
         config_func()
 
     def get_dfs_order(self) -> List[FireSimNode]:
-        """Return all nodes in the topology in dfs order, as a list."""
+        """ Return all nodes in the topology in dfs order, as a list. """
         stack = list(self.roots)
         retlist: List[FireSimNode] = []
         visitedonce = set()
@@ -48,24 +42,19 @@ class FireSimTopology(UserTopologies):
                     stack.pop(0)
             else:
                 visitedonce.add(nextup)
-                stack = (
-                    list(map(lambda x: x.get_downlink_side(), nextup.downlinks)) + stack
-                )
+                stack = list(map(lambda x: x.get_downlink_side(), nextup.downlinks)) + stack
         return retlist
 
     def get_dfs_order_switches(self) -> List[FireSimSwitchNode]:
-        """Utility function that returns only switches, in dfs order."""
+        """ Utility function that returns only switches, in dfs order. """
         return [x for x in self.get_dfs_order() if isinstance(x, FireSimSwitchNode)]
 
     def get_dfs_order_servers(self) -> List[FireSimServerNode]:
-        """Utility function that returns only servers, in dfs order."""
+        """ Utility function that returns only servers, in dfs order. """
         return [x for x in self.get_dfs_order() if isinstance(x, FireSimServerNode)]
 
-    def get_dfs_order_pipes(self) -> List[FireSimPipeNode]:
-        """Utility function that returns only partition hubs, in dfs order."""
-        return [x for x in self.get_dfs_order() if isinstance(x, FireSimPipeNode)]
-
     def get_bfs_order(self) -> None:
-        """return the nodes in the topology in bfs order"""
+        """ return the nodes in the topology in bfs order """
         # don't forget to eliminate dups
         assert False, "TODO"
+

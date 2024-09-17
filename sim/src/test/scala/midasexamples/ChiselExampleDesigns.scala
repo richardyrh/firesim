@@ -6,24 +6,26 @@ import java.io.File
 import scala.io.Source
 import org.scalatest.Suites
 
-class GCDF1Test extends TutorialSuite("GCD", basePlatformConfig = BaseConfigs.F1)
+class GCDF1Test    extends TutorialSuite("GCD", basePlatformConfig = BaseConfigs.F1)
+class GCDVitisTest extends TutorialSuite("GCD", basePlatformConfig = BaseConfigs.Vitis)
 
 // Hijack Parity to test all of the Midas-level backends
-class ParityF1Test extends TutorialSuite("Parity", basePlatformConfig = BaseConfigs.F1)
+class ParityF1Test    extends TutorialSuite("Parity", basePlatformConfig = BaseConfigs.F1)
+class ParityVitisTest extends TutorialSuite("Parity", basePlatformConfig = BaseConfigs.Vitis)
 
 class CustomConstraintsF1Test extends TutorialSuite("CustomConstraints") {
 
-  override def defineTests(backend: String, debug: Boolean): Unit = {
+  override def defineTests(backend: String, debug: Boolean) {
     def readLines(filename: String): List[String] = {
       val file = new File(genDir, s"/${filename}")
       Source.fromFile(file).getLines.toList
     }
-    it should "generate synthesis XDC file" in {
+    it should s"generate synthesis XDC file" in {
       val xdc = readLines("FireSim-generated.synthesis.xdc")
       xdc should contain("constrain_synth1")
       (atLeast(1, xdc) should fullyMatch).regex("constrain_synth2 \\[reg firesim_top/.*/dut/r0\\]".r)
     }
-    it should "generate implementation XDC file" in {
+    it should s"generate implementation XDC file" in {
       val xdc = readLines("FireSim-generated.implementation.xdc")
       xdc should contain("constrain_impl1")
       (atLeast(1, xdc) should fullyMatch).regex("constrain_impl2 \\[reg WRAPPER_INST/CL/firesim_top/.*/dut/r1]".r)
@@ -32,7 +34,7 @@ class CustomConstraintsF1Test extends TutorialSuite("CustomConstraints") {
 }
 
 class TerminationF1Test extends TutorialSuite("TerminationModule") {
-  override def defineTests(backend: String, debug: Boolean): Unit = {
+  override def defineTests(backend: String, debug: Boolean) {
     (1 to 10).foreach { x =>
       val args = Seq("+termination-bridge-tick-rate=10", s"+fuzz-seed=${x}")
       assert(run(backend, debug, args = args) == 0)

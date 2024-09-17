@@ -24,6 +24,7 @@ define make_xcelium
 		GEN_FILE_BASENAME=$(BASE_FILE_NAME) \
 		GEN_DIR=$(GENERATED_DIR) \
 		DRIVER="$(DRIVER_CC)" \
+		TOP_DIR=$(chipyard_dir) \
 		DESIGN_V=$(2)
 endef
 

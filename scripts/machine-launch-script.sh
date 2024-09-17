@@ -13,7 +13,6 @@ CONDA_SHELL_TYPE=bash
 DRY_RUN_OPTION=""
 DRY_RUN_ECHO=()
 REINSTALL_CONDA=0
-USE_LIBMAMBA_SOLVER=0
 
 usage()
 {
@@ -29,7 +28,6 @@ usage()
     echo "[--reinstall-conda]       Repairs a broken base environment by reinstalling."
     echo "                          NOTE: will only reinstall conda and exit without modifying the --env"
     echo "[--shell]                 Run initialization for a specific shell. Defaults to $CONDA_SHELL_TYPE."
-    echo "[--use-libmamba-solver]   Use experimental libmamba solver for conda."
     echo
     echo "Examples:"
     echo "  % $0"
@@ -77,10 +75,6 @@ while [ $# -gt 0 ]; do
             shift
             CONDA_SHELL_TYPE="$1"
             shift
-            ;;
-        --use-libmamba-solver)
-            shift
-            USE_LIBMAMBA_SOLVER=1
             ;;
         *)
             echo "Invalid Argument: $1"
@@ -198,13 +192,11 @@ set -o pipefail
         # conda-build is a special case and must always be installed into the base environment
         $SUDO "$CONDA_EXE" install $DRY_RUN_OPTION -y -n base conda-build
 
-        if [[ $USE_LIBMAMBA_SOLVER -eq 1 ]]; then
-            # conda-libmamba-solver is a special case and must always be installed into the base environment
-            # see https://www.anaconda.com/blog/a-faster-conda-for-a-growing-community
-            $SUDO "$CONDA_EXE" install $DRY_RUN_OPTION -y -n base conda-libmamba-solver
-            # Use the fast solver by default
-            "${DRY_RUN_ECHO[@]}" $SUDO "$CONDA_EXE" config --system --set solver libmamba
-        fi
+        # conda-libmamba-solver is a special case and must always be installed into the base environment
+        # see https://www.anaconda.com/blog/a-faster-conda-for-a-growing-community
+        $SUDO "$CONDA_EXE" install $DRY_RUN_OPTION -y -n base conda-libmamba-solver
+        # Use the fast solver by default
+        "${DRY_RUN_ECHO[@]}" $SUDO "$CONDA_EXE" config --system --set solver libmamba
 
         conda_init_extra_args=()
         if [[ "$INSTALL_TYPE" == system ]]; then
@@ -242,6 +234,7 @@ set -o pipefail
         git \
         screen \
         argcomplete \
+        "conda-lock=1.4" \
         expect \
         "python>=3.8" \
         boto3 \

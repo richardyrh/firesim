@@ -1,16 +1,14 @@
 External Tutorial Setup
-=======================
+===================================
 
-This section of the documentation is for external attendees of a in-person FireSim and
-Chipyard tutorial. Please follow along with the following steps to get setup if you
-already have an AWS EC2 account.
+This section of the documentation is for external attendees of a
+in-person FireSim and Chipyard tutorial.
+Please follow along with the following steps to get setup if you already have an AWS EC2 account.
 
-.. note::
+.. Note:: These steps should take around 2hrs if you already have an AWS EC2 account.
 
-    These steps should take around 2hrs if you already have an AWS EC2 account.
+1. Start following the FireSim documentation from :ref:`initial-setup` but ending at :ref:`setting-up-firesim-repo` (make sure to **NOT** clone the FireSim repository)
 
-1. Start following the FireSim documentation from :ref:`initial-setup` but ending at
-   :ref:`setting-up-firesim-repo` (make sure to **NOT** clone the FireSim repository)
 2. Run the following commands:
 
 .. code-block:: bash
@@ -39,7 +37,7 @@ already have an AWS EC2 account.
     (
     git clone https://github.com/ucb-bar/chipyard -b final-tutorial-2022-isca-morning chipyard-morning
     cd chipyard-morning
-    ./scripts/init-submodules-no-riscv-tools.sh
+    ./scripts/init-submodules-no-riscv-tools.sh --skip-validate
 
     ./scripts/build-toolchains.sh ec2fast
     source env.sh
@@ -64,7 +62,7 @@ already have an AWS EC2 account.
     (
     git clone https://github.com/ucb-bar/chipyard -b final-tutorial-2022-isca chipyard-afternoon
     cd chipyard-afternoon
-    ./scripts/init-submodules-no-riscv-tools.sh
+    ./scripts/init-submodules-no-riscv-tools.sh --skip-validate
 
     ./scripts/build-toolchains.sh ec2fast
     source env.sh
@@ -77,10 +75,9 @@ already have an AWS EC2 account.
     make f1
     export MAKEFLAGS=-j16
 
-    cd ../target-design/chipyard/software/firemarshal
+    cd ../sw/firesim-software
     ./init-submodules.sh
     marshal -v build br-base.json
-    marshal -v install br-base.json
 
     cd ~/chipyard-afternoon/generators/sha3/software/
     git submodule update --init esp-isa-sim
@@ -110,8 +107,7 @@ already have an AWS EC2 account.
 
     )
 
-3. Next copy the following contents and replace your entire ``~/.bashrc`` file with
-   this:
+3. Next copy the following contents and replace your entire ``~/.bashrc`` file with this:
 
 .. code-block:: bash
 

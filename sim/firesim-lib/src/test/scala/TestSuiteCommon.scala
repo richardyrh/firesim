@@ -2,7 +2,10 @@
 package firesim
 
 import java.io.File
+import scala.io.Source
 import scala.sys.process.{stringSeqToProcess, ProcessLogger}
+import org.chipsalliance.cde.config.Config
+
 import scala.collection.mutable
 
 /** A base class that captures the platform-specific parts of the configuration of a test.
@@ -12,7 +15,7 @@ import scala.collection.mutable
   * @param configs
   *   List of platform-specific configuration classes
   */
-abstract class BasePlatformConfig(val platformName: String, val configs: Seq[String])
+abstract class BasePlatformConfig(val platformName: String, val configs: Seq[Class[_ <: Config]])
 
 /** An base class for implementing FireSim integration tests that call out to the Make buildsystem. These tests
   * typically have three steps whose results are tracked by scalatest: 1) Elaborate the target and compile it through
@@ -30,27 +33,16 @@ abstract class TestSuiteBase extends org.scalatest.flatspec.AnyFlatSpec {
   def targetName:     String
   def targetConfigs: String         = "NoConfig"
   def platformMakeArgs: Seq[String] = Seq()
-  def extraMakeArgs: Seq[String]    = Seq()
 
-  // since this test suite is used in Chipyard and FireSim you want to resolve the
-  // FireSim path based on something other than the FIRESIM_STANDALONE env. var.
+  // Check if we are running out of Chipyard by checking for the existence of a firesim/sim directory
   val firesimDir = {
-    // can either be in <firesim>/sim or in <chipyard>/
-    val curDir = new File(System.getProperty("user.dir"))
-
-    // determine if in a firesim or chipyard area
-    val chipyardReadme = new File(curDir, "README.md") // HACK: chipyard README.md is in same dir as build.sbt
-
-    val filetypeDir = if (chipyardReadme.exists()) {
-      new File(curDir, "sims/firesim/sim")
+    val cwd             = System.getProperty("user.dir")
+    val firesimAsLibDir = new File(cwd, "sims/firesim/sim")
+    if (firesimAsLibDir.exists()) {
+      firesimAsLibDir
     } else {
-      curDir
+      new File(cwd)
     }
-
-    // convert to path to use toRealPath (which does resolve symlinks unlike File.toAbsolutePath)
-    val pathdir = filetypeDir.toPath().toRealPath()
-    // convert back to File to keep same API
-    pathdir.toFile()
   }
 
   var ciSkipElaboration: Boolean = false
@@ -76,7 +68,7 @@ abstract class TestSuiteBase extends org.scalatest.flatspec.AnyFlatSpec {
   def elaborateMakeTarget: Seq[String] = Seq("compile")
 
   def makeCommand(makeArgs: String*): Seq[String] = {
-    Seq("make", "-C", s"$firesimDir") ++ makeArgs.toSeq ++ commonMakeArgs ++ platformMakeArgs ++ extraMakeArgs
+    Seq("make", "-C", s"$firesimDir") ++ makeArgs.toSeq ++ commonMakeArgs ++ platformMakeArgs
   }
 
   // Runs make passing default args to specify the right target design, project and platform
@@ -95,14 +87,14 @@ abstract class TestSuiteBase extends org.scalatest.flatspec.AnyFlatSpec {
     returnCode
   }
 
-  def clean(): Unit = { make("clean") }
+  def clean() { make("clean") }
 
   def isCmdAvailable(cmd: String) =
     Seq("which", cmd) ! ProcessLogger(_ => {}) == 0
 
   // Running all scala-invocations required to take the design to verilog.
   // Generally elaboration + GG compilation.
-  def elaborateAndCompile(behaviorDescription: String = "elaborate and compile through GG sucessfully"): Unit = {
+  def elaborateAndCompile(behaviorDescription: String = "elaborate and compile through GG sucessfully") {
     it should behaviorDescription in {
       // Under CI, if make failed during elaboration we catch it here without
       // attempting to rebuild
@@ -113,7 +105,7 @@ abstract class TestSuiteBase extends org.scalatest.flatspec.AnyFlatSpec {
 }
 
 abstract class TestSuiteCommon(targetProject: String) extends TestSuiteBase {
-  def platformConfigs: Seq[String] = Seq()
+  def platformConfigs: Seq[Class[_ <: Config]] = Seq()
   def basePlatformConfig: BasePlatformConfig
 
   def run(
@@ -134,7 +126,7 @@ abstract class TestSuiteCommon(targetProject: String) extends TestSuiteBase {
     } else 0
   }
 
-  def platformConfigString = (platformConfigs ++ basePlatformConfig.configs).mkString("_")
+  def platformConfigString = (platformConfigs ++ basePlatformConfig.configs).map(_.getSimpleName).mkString("_")
 
   override val platformMakeArgs = Seq(s"PLATFORM=${basePlatformConfig.platformName}")
   override val commonMakeArgs   = Seq(
@@ -152,10 +144,10 @@ abstract class TestSuiteCommon(targetProject: String) extends TestSuiteBase {
   lazy val genDir = new File(firesimDir, s"generated-src/${basePlatformConfig.platformName}/${targetTuple}")
   lazy val outDir = new File(firesimDir, s"output/${basePlatformConfig.platformName}/${targetTuple}")
 
-  def mkdirs(): Unit = { genDir.mkdirs; outDir.mkdirs }
+  def mkdirs() { genDir.mkdirs; outDir.mkdirs }
 
   // Compiles a MIDAS-level RTL simulator of the target
-  def compileMlSimulator(b: String, debug: Boolean): Unit = {
+  def compileMlSimulator(b: String, debug: Boolean) {
     it should s"compile sucessfully to ${b}" + { if (debug) " with waves enabled" else "" } in {
       assert(makeCriticalDependency(s"$b%s".format(if (debug) "-debug" else "")) == 0)
     }

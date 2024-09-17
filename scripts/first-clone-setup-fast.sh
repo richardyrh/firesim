@@ -12,6 +12,6 @@ cd sim
 make f1
 
 # build target software
-cd ../target-design/chipyard/software/firemarshal
+cd ../sw/firesim-software
 ./init-submodules.sh
 marshal -v build br-base.json

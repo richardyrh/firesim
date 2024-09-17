@@ -1,31 +1,27 @@
 // See LICENSE for license details.
 
-package midas.widgets
-
-import scala.collection.mutable
+package midas
+package widgets
 
 import chisel3._
 import chisel3.util._
 import chisel3.experimental.DataMirror
-
+import junctions._
 import org.chipsalliance.cde.config.{Field, Parameters}
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util.ParameterizedBundle
 
-import junctions._
-
-import firesim.lib.bridgeutils._
-import firesim.lib.nasti._
+import scala.collection.mutable
 
 // The AXI4-lite key for the simulation control bus
 case object CtrlNastiKey extends Field[NastiParameters]
 
 // Just NASTI, but pointing at the right key.
-class WidgetMMIO(nastiParams: NastiParameters) extends NastiIO(nastiParams)
+class WidgetMMIO(implicit p: Parameters) extends NastiIO()(p) with HasNastiParameters
 
 object WidgetMMIO {
   def apply()(implicit p: Parameters): WidgetMMIO = {
-    new WidgetMMIO(p(CtrlNastiKey))
+    new WidgetMMIO()(p.alterPartial({ case NastiKey => p(CtrlNastiKey) }))
   }
 }
 
@@ -150,11 +146,13 @@ abstract class WidgetImp(wrapper: Widget) extends LazyModuleImp(wrapper) {
     val reg         = RegInit(default)
     val shadowReg   = Reg(default.cloneType)
     shadowReg.suggestName(s"${name}_mmreg")
-    Seq.tabulate((default.getWidth + ctrlWidth - 1) / ctrlWidth)({ i =>
-      val msb   = math.min(ctrlWidth * (i + 1) - 1, default.getWidth - 1)
-      val slice = shadowReg(msb, ctrlWidth * i)
-      attach(slice, s"${name}_$i", ReadOnly, substruct)
-    })
+    val baseAddr    = Seq
+      .tabulate((default.getWidth + ctrlWidth - 1) / ctrlWidth)({ i =>
+        val msb   = math.min(ctrlWidth * (i + 1) - 1, default.getWidth - 1)
+        val slice = shadowReg(msb, ctrlWidth * i)
+        attach(slice, s"${name}_$i", ReadOnly, substruct)
+      })
+      .head
     // When a read request is made of the low order address snapshot the entire register
     val latchEnable = WireInit(false.B).suggestName(s"${name}_latchEnable")
     attach(latchEnable, s"${name}_latch", WriteOnly, substruct)
@@ -165,7 +163,7 @@ abstract class WidgetImp(wrapper: Widget) extends LazyModuleImp(wrapper) {
   }
 
   def genCRFile(): MCRFile = {
-    val crFile = Module(new MCRFile(p(CtrlNastiKey), numRegs))
+    val crFile = Module(new MCRFile(numRegs)(p.alterPartial({ case NastiKey => p(CtrlNastiKey) })))
     crFile.io.mcr   := DontCare
     crFile.io.nasti <> io.ctrl
     crRegistry.bindRegs(crFile.io.mcr)
@@ -225,11 +223,11 @@ abstract class WidgetImp(wrapper: Widget) extends LazyModuleImp(wrapper) {
     if (regs.nonEmpty) {
       sb.append("#ifdef GET_SUBSTRUCT_CHECKS\n")
       regs.zipWithIndex.foreach { case ((regName, _), i) =>
-        sb.append("static_assert(")
+        sb.append(s"static_assert(")
         sb.append(s"offsetof(${mmioName}_struct, ${regName}) == ${i} * sizeof(uint64_t), ")
         sb.append(s"${'\"'}invalid ${regName}${'\"'});\\\n")
       }
-      sb.append("static_assert(")
+      sb.append(s"static_assert(")
       sb.append(s"sizeof(${mmioName}_struct) == ${regs.length} * sizeof(uint64_t), ")
       sb.append(s"${'\"'}invalid structure${'\"'}); \\\n\n")
       sb.append(s"#endif // ${mmioName}_checks\n")
@@ -237,7 +235,7 @@ abstract class WidgetImp(wrapper: Widget) extends LazyModuleImp(wrapper) {
 
     sb.append(s"#ifdef ${guard}\n")
     sb.append(s"registry.add_widget(new ${bridgeDriverClassName}(\n")
-    sb.append("  simif,\n")
+    sb.append(s"  simif,\n")
     if (hasStreams) {
       sb.append("  *registry.get_stream_engine(),\n")
     }
@@ -256,17 +254,13 @@ abstract class WidgetImp(wrapper: Widget) extends LazyModuleImp(wrapper) {
       sb.append("},\n")
     }
     sb.append(s"  ${wrapper.getWId},\n")
-    sb.append("  args\n  ")
+    sb.append(s"  args\n  ")
     for (arg <- args) {
       sb.append(s",  ${arg.toC}\n")
     }
-    sb.append("));\n")
+    sb.append(s"));\n")
     sb.append(s"#endif // ${guard}\n")
   }
-
-  def genPartitioningConstants(sb: StringBuilder): Unit = {}
-
-  def genPeerToPeerAddrMap(sb: StringBuilder): Unit = {}
 }
 
 object Widget {
@@ -293,7 +287,7 @@ object WidgetRegion {
 }
 
 trait HasWidgets {
-
+  private var _finalized   = false
   private val widgets      = mutable.ArrayBuffer[Widget]()
   private val name2inst    = mutable.HashMap[String, Widget]()
   private lazy val addrMap = new AddrMap({
@@ -329,10 +323,9 @@ trait HasWidgets {
 
     val ctrlInterconnect = Module(
       new NastiRecursiveInterconnect(
-        p(CtrlNastiKey),
         nMasters = 1,
         addrMap  = addrMap,
-      )
+      )(p.alterPartial({ case NastiKey => p(CtrlNastiKey) }))
     )
     ctrlInterconnect.io.masters(0) <> master
     sortedWidgets.zip(ctrlInterconnect.io.slaves).foreach { case (w: Widget, m) =>
@@ -352,14 +345,6 @@ trait HasWidgets {
     */
   def genWidgetHeaders(sb: StringBuilder, memoryRegions: Map[String, BigInt]): Unit = {
     widgets.foreach((w: Widget) => w.module.genHeader(addrMap(w.getWName).start, memoryRegions, sb))
-  }
-
-  def genWidgetPartitioningConstants(sb: StringBuilder): Unit = {
-    widgets.foreach((w: Widget) => w.module.genPartitioningConstants(sb))
-  }
-
-  def genWidgetPeerToPeerAddrMap(sb: StringBuilder): Unit = {
-    widgets.foreach((w: Widget) => w.module.genPeerToPeerAddrMap(sb))
   }
 
   def printWidgets: Unit = {

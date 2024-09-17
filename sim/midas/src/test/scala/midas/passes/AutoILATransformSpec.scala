@@ -2,12 +2,13 @@
 
 package midas.tests
 
-import midas.{ConvertExternalToInternalAnnotations, EnableAutoILA}
-import midas.targetutils.FirrtlFpgaDebugAnnotation
+import logger._
+import midas.EnableAutoILA
+import midas.targetutils.{FirrtlFpgaDebugAnnotation, FpgaDebug}
 import midas.passes._
 import midas.stage.phases.ConfigParametersAnnotation
 
-import org.chipsalliance.cde.config.Config
+import org.chipsalliance.cde.config.{Config, Parameters}
 
 import firrtl.annotations._
 import firrtl.transforms.BlackBoxInlineAnno
@@ -15,7 +16,7 @@ import firrtl.testutils._
 import midas.stage.OutputBaseFilenameAnnotation
 import midas.stage.GoldenGateOutputFileAnnotation
 
-class BaseAutoILAConfig extends Config((_, _, _) => { case EnableAutoILA => true })
+class BaseAutoILAConfig extends Config((site, here, up) => { case EnableAutoILA => true })
 
 class AutoILATransformSpec extends MiddleTransformSpec with FirrtlRunners {
 
@@ -127,7 +128,7 @@ class AutoILATransformSpec extends MiddleTransformSpec with FirrtlRunners {
 
     val referenceAnnos = Seq(bbAnno, ipgenAnno)
     it should "wire out the correct ILA when a variety of targets are labelled" in {
-      executeWithAnnos(input, output, ConvertExternalToInternalAnnotations(fpgaDebugAnnos) ++ baseAnnos, referenceAnnos)
+      executeWithAnnos(input, output, fpgaDebugAnnos ++ baseAnnos, referenceAnnos)
     }
   }
 }

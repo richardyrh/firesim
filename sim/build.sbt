@@ -1,6 +1,6 @@
 import Tests._
 
-val chiselVersion = "3.6.1"
+val chiselVersion = "3.6.0"
 
 // keep chisel/firrtl specific class files, rename other conflicts
 val chiselFirrtlMergeStrategy = CustomMergeStrategy.rename { dep =>
@@ -56,12 +56,21 @@ lazy val commonSettings = Seq(
 
 lazy val chiselSettings = Seq(
   libraryDependencies ++= Seq(
-    "edu.berkeley.cs" %% "chisel3" % "3.6.1",
+    "edu.berkeley.cs" %% "chisel3" % "3.6.0",
     "org.apache.commons" % "commons-lang3" % "3.12.0",
     "org.apache.commons" % "commons-text" % "1.9"
   ),
-  addCompilerPlugin("edu.berkeley.cs" % "chisel3-plugin" % "3.6.1" cross CrossVersion.full)
+  addCompilerPlugin("edu.berkeley.cs" % "chisel3-plugin" % "3.6.0" cross CrossVersion.full)
 )
+
+lazy val firesimAsLibrary = sys.env.get("FIRESIM_STANDALONE") == None
+
+lazy val chipyardDir = if(firesimAsLibrary) {
+  file("./chipyard-symlink")
+} else {
+  file("./target-rtl/chipyard")
+}
+
 
 // Fork each scala test for now, to work around persistent mutable state
 // in Rocket-Chip based generators
@@ -70,26 +79,28 @@ def isolateAllTests(tests: Seq[TestDefinition]) = tests map { test =>
       new Group(test.name, Seq(test), SubProcess(options))
   } toSeq
 
-lazy val cde = (project in file("cde"))
+
+lazy val cde = (project in chipyardDir / "tools" / "cde")
   .settings(commonSettings)
   .settings(chiselSettings)
   .settings(Compile / scalaSource := baseDirectory.value / "cde/src/chipsalliance/rocketchip")
 
-lazy val hardfloat = (project in file("berkeley-hardfloat/hardfloat"))
+lazy val hardfloat = (project in chipyardDir / "generators" / "hardfloat" / "hardfloat")
   .settings(commonSettings)
   .settings(chiselSettings)
 
-lazy val rocketMacros  = (project in file("rocket-chip/macros"))
+lazy val rocketMacros  = (project in chipyardDir / "generators" / "rocket-chip" / "macros")
   .settings(commonSettings)
   .settings(chiselSettings)
 
-lazy val diplomacy = (project in file("diplomacy/diplomacy"))
+lazy val diplomacy = (project in chipyardDir / "generators" / "diplomacy" / "diplomacy")
   .dependsOn(cde)
   .settings(commonSettings)
   .settings(chiselSettings)
   .settings(Compile / scalaSource := baseDirectory.value / "src" / "diplomacy")
 
-lazy val rocketchip = (project in file("rocket-chip"))
+
+lazy val rocketchip = (project in chipyardDir / "generators" / "rocket-chip")
   .dependsOn(hardfloat, rocketMacros, diplomacy, cde)
   .settings(commonSettings)
   .settings(chiselSettings)
@@ -104,13 +115,25 @@ lazy val rocketchip = (project in file("rocket-chip"))
     )
   )
 
-// Doesn't depend on FireSim stuff at all
-lazy val targetutils   = (project in file("midas/targetutils"))
+lazy val icenet = (project in chipyardDir / "generators" / "icenet")
+  .dependsOn(rocketchip)
   .settings(commonSettings)
+  .settings(chiselSettings)
 
-// Doesn't depend on FireSim stuff at all
-lazy val firesimLib = (project in file("firesim-lib"))
-  .dependsOn(targetutils)
+lazy val testchipip = (project in chipyardDir / "generators" / "testchipip" / "src")
+  .dependsOn(rocketchip, rocketchip_blocks)
+  .settings(commonSettings)
+  .settings(chiselSettings)
+  .settings(Compile / scalaSource := baseDirectory.value / "main" / "scala")
+  .settings(Compile / resourceDirectory := baseDirectory.value / "main" / "resources")
+
+
+lazy val rocketchip_blocks = (project in chipyardDir / "generators" / "rocket-chip-blocks")
+  .dependsOn(rocketchip)
+  .settings(commonSettings)
+  .settings(chiselSettings)
+
+lazy val targetutils   = (project in file("midas/targetutils"))
   .settings(commonSettings)
 
 // We cannot forward reference firesim from midas (this creates a circular
@@ -119,9 +142,14 @@ lazy val firesimLib = (project in file("firesim-lib"))
 lazy val firesimRef = ProjectRef(file("."), "firesim")
 
 lazy val midas = (project in file("midas"))
-  .dependsOn(rocketchip, targetutils, firesimLib)
+  .dependsOn(rocketchip, targetutils)
   .settings(libraryDependencies ++= Seq(
     "org.scalatestplus" %% "scalacheck-1-14" % "3.1.3.0" % "test"))
+  .settings(commonSettings)
+
+
+lazy val firesimLib = (project in file("firesim-lib"))
+  .dependsOn(midas, icenet, testchipip, rocketchip_blocks)
   .settings(commonSettings)
 
 // Contains example targets, like the MIDAS examples, and FASED tests

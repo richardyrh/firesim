@@ -3,12 +3,14 @@
 package goldengate.tests.core
 
 import chisel3._
+import chisel3.util._
 import chisel3.experimental.DataMirror
 
+import org.scalatest._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-import firesim.lib.bridgeutils.SimUtils
+import midas.core.SimUtils
 
 import firrtl.ir.{BundleType, Default, Field, IntWidth, NoInfo, Port, UIntType}
 import firrtl.annotations.{ReferenceTarget, TargetToken}

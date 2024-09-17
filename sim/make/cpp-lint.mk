@@ -5,13 +5,14 @@
 # clang-tidy
 ################################################################################
 
+testchipip_csrc_dir = $(chipyard_dir)/generators/testchipip/src/main/resources/testchipip/csrc
+
 clang_tidy_files := $(shell \
 	find $(firesim_base_dir) -name '*.cc' -or -name '*.h' \
 		| grep -v TestPointerChaser.cc \
 		| grep -v simif_ \
 		| grep -v tracerv \
 		| grep -v tsibridge \
-		| grep -v dmibridge \
 		| grep -v fesvr \
 		| grep -v generated-src \
 		| grep -v output \
@@ -23,6 +24,7 @@ clang_tidy_flags :=\
 	-I$(firesim_base_dir)/midas/src/main/cc \
 	-I$(firesim_base_dir)/firesim-lib/src/main/cc \
 	-I$(firesim_base_dir)/src/main/cc/midasexamples \
+	-I$(testchipip_csrc_dir) \
 	-std=c++20 \
 	-x c++
 

@@ -28,7 +28,7 @@ termination_t::~termination_t() = default;
 void termination_t::tick() { // reads the MMIOs at tick-rate
   if (tick_counter == tick_rate) {
     if (read(mmio_addrs.out_status)) {
-      size_t msg_id = read(mmio_addrs.out_terminationCode);
+      int msg_id = read(mmio_addrs.out_terminationCode);
       assert(msg_id < messages.size());
       this->fail = messages[msg_id].is_err;
       test_done = true;

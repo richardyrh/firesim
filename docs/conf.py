@@ -41,67 +41,42 @@ if on_rtd:
     for item, value in os.environ.items():
         print("[READTHEDOCS] {} = {}".format(item, value))
 
-def get_git_tag():
-    # get the latest git tag (which is what rtd normally builds under "stable")
-    # this works since rtd builds things within the repo
-    process = subprocess.Popen(["git", "describe", "--exact-match", "--tags"], stdout=subprocess.PIPE)
-    tag = process.communicate()[0].decode("utf-8").strip()
-    if process.returncode == 0:
-        return tag
-    else:
-        return None
-
-def get_git_branch_name():
-    # When running locally, try to set version to a branch name that could be
-    # used to reference files on GH that could be added or moved. This should match rtd_version when running
-    # in a RTD build container
-    process = subprocess.Popen(["git", "rev-parse", "--abbrev-ref", "HEAD"], stdout=subprocess.PIPE)
-    branchname = process.communicate()[0].decode("utf-8").strip()
-    if process.returncode == 0:
-        return branchname
-    else:
-        return None
-
 # Come up with a short version string for the build. This is doing a bunch of lifting:
-#   - format doc text that self-references its version (see title page). This may be used in an ad-hoc
-#     way to produce references to things like ScalaDoc, etc...
-#   - procedurally generate github URL references using via `gh-file-ref`
-#
-# For FireSim, the RTD version can be multiple things:
-#   1. 'stable' - This points to a branch called 'stable' in the repo. that was previously manually updated each release. This is outdated.
-#   2. 'latest' - This points to the 'main' branch documentation. This is recommended.
-#   3. '<another-branch-name>' - This points to a branch. Normally used for testing if a branches documentation builds.
+# - format doc text that self-references its version (see title page). This may be used in an ad-hoc
+#   way to produce references to things like ScalaDoc, etc...
+# - procedurally generate github URL references using via `gh-file-ref`
 if on_rtd:
+    logger.info("Running in a RTD Container")
     rtd_version = os.environ.get("READTHEDOCS_VERSION")
-    if rtd_version == "latest":
-        branchname = get_git_branch_name()
-        assert branchname is not None
-        version = branchname
-    elif rtd_version == "stable":
-        tag = get_git_tag()
-        assert tag is not None
-        version = tag
+    if rtd_version in ["stable", "latest"]:
+        # get the latest git tag (which is what rtd normally builds under "stable")
+        # this works since rtd builds things within the repo
+        process = subprocess.Popen(["git", "describe", "--exact-match", "--tags"], stdout=subprocess.PIPE)
+        output = process.communicate()[0].decode("utf-8").strip()
+        if process.returncode == 0:
+            version = output
+        else:
+            version = "v?.?.?" # this should not occur as "stable" is always pointing to tagged version
     else:
-        version = rtd_version # should be name of a branch
+        version = rtd_version # name of a branch
 elif on_gha:
-    rtd_version = "latest"
     # GitHub actions does a build of the docs to ensure they are free of warnings.
+    logger.info("Running under GitHub Actions Pipeline")
     # Looking up a branch name or tag requires switching on the event type that triggered the workflow
     # so just use the SHA of the commit instead.
     version = os.environ.get("GITHUB_SHA")
 else:
-    rtd_version = "latest"
     # When running locally, try to set version to a branch name that could be
     # used to reference files on GH that could be added or moved. This should match rtd_version when running
     # in a RTD build container
-    branchname = get_git_branch_name()
-    assert branchname is not None
-    version = branchname
+    process = subprocess.Popen(["git", "rev-parse", "--abbrev-ref", "HEAD"], stdout=subprocess.PIPE)
+    output = process.communicate()[0].decode("utf-8").strip()
+    if process.returncode == 0:
+        version = output
+    else:
+        raise Exception("git rev-parse --abbrev-ref HEAD returned non-zero")
 
 logger.info(f"Setting |version| to {version}.")
-
-# set chipyard docs version
-cy_docs_version = "3439f8113eefe4e7798c47d724f7bae3d526b8e1"
 
 # for now make these match
 release = version
@@ -194,10 +169,9 @@ html_context = {
 
 # add rst to beginning of each rst source file
 # can put custom strings here that are generated from this file
-# you can use these in .. code-block:: directives with :substitutions: added underneath
+# you can use these in .. code-block:: directives if you give the :substitutions: option underneath
 rst_prolog = f"""
 .. |overall_version| replace:: {version}
-.. |cy_docs_version| replace:: {cy_docs_version}
 """
 
 # -- Options for LaTeX output ------------------------------------------------
@@ -264,29 +238,32 @@ def copy_legacy_redirects(app, docname): # Sphinx expects two arguments
             if os.path.isfile(src_path):
                 shutil.copyfile(src_path, target_path)
 
-def gh_file_ref_role_impl(url, text_prefix, name, rawtext, text, lineno, inliner, options={}, content=[]):
-    """Produces a github.com reference to a blob or tree at path {text}.
+def gh_file_ref_role(name, rawtext, text, lineno, inliner, options={}, content=[]):
+    """
+    Produces a github.com reference to a blob or tree at path {text}.
 
     Example:
 
     :gh-file-ref:`my/path`
 
-    Produces a hyperlink with the text "my/path" that refers to the url given.
+    Produces a hyperlink with the text "my/path" that refers the url:
+    https://www.github.com/firesim/firesim/blob/<version>/my/path.
 
-    Where version is the same as would be substituted by using |version| in html text,
-    and is resolved in conf.py.
+    Where version is the same as would be substituted by using |version| in
+    html text, and is resolved in conf.py.
 
     This is based off custom role sphinx plugins like
-    https://github.com/tdi/sphinxcontrib-manpage. I've inlined this here for now, but we
-    could just as well make it a module and register it under `extensions` in conf.py
-
+    https://github.com/tdi/sphinxcontrib-manpage. I've inlined this here for
+    now, but we could just as well make it a module and register it under
+    `extensions` in conf.py
     """
 
     import docutils
     import requests
 
-    if text_prefix is not None:
-        text = text_prefix + text
+    # Note GitHub permits referring to a tree as a 'blob' in these URLs without returning a 404.
+    # So I've unconditionally chosen to use blob.
+    url = f"https://www.github.com/firesim/firesim/blob/{version}/{text}"
 
     logger.info(f"Testing GitHub URL {url} exists...")
     status_code = requests.get(url).status_code
@@ -300,20 +277,7 @@ def gh_file_ref_role_impl(url, text_prefix, name, rawtext, text, lineno, inliner
     node = docutils.nodes.reference(rawtext, text, refuri=url, **options)
     return [node], []
 
-def fs_gh_file_ref_role(name, rawtext, text, lineno, inliner, options={}, content=[]):
-    # Note GitHub permits referring to a tree as a 'blob' in these URLs without returning a 404.
-    # So I've unconditionally chosen to use blob.
-    url = f"https://www.github.com/firesim/firesim/blob/{version}/{text}"
-    return gh_file_ref_role_impl(url, None, name, rawtext, text, lineno, inliner, options, content)
-
-def cy_gh_file_ref_role(name, rawtext, text, lineno, inliner, options={}, content=[]):
-    # Note GitHub permits referring to a tree as a 'blob' in these URLs without returning a 404.
-    # So I've unconditionally chosen to use blob.
-    url = f"https://www.github.com/ucb-bar/chipyard/blob/{cy_docs_version}/{text}"
-    return gh_file_ref_role_impl(url, "${CY_DIR}/", name, rawtext, text, lineno, inliner, options, content)
-
 def setup(app):
     # Add roles to simplify github reference generation
-    app.add_role('gh-file-ref', fs_gh_file_ref_role)
-    app.add_role('cy-gh-file-ref', cy_gh_file_ref_role)
+    app.add_role('gh-file-ref', gh_file_ref_role)
     app.connect('build-finished', copy_legacy_redirects)

@@ -5,7 +5,6 @@
 
 #include <atomic>
 #include <condition_variable>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -16,11 +15,9 @@
 #include "core/simif.h"
 #include "emul/mm.h"
 #include "emul/mmio.h"
-#include "emul/qsfp.h"
 
 class mm_t;
 class mmio_t;
-class qsfp_t;
 
 /**
  * Simulation implementation bridging an RTL DUT to a simulation.
@@ -74,8 +71,6 @@ public:
   void write(size_t addr, uint32_t data) override;
   uint32_t read(size_t addr) override;
 
-  // void sync_sockets() override;
-
   /**
    * Returns a pointer to the CPU-managed AXI4 IF at the metasimulation
    * boundary.
@@ -116,9 +111,6 @@ public:
    * simif_emul_t::load_mems.
    */
   std::vector<std::unique_ptr<mm_t>> slave;
-
-  // Pointers to inter-context QSFP communication channels
-  std::vector<std::unique_ptr<qsfp_t>> qsfp;
 
   /**
    * Return the wrapper around the CPU-managed stream AXI interface.

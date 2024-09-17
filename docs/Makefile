@@ -16,13 +16,7 @@ clean:
 	rm -r _build/html/*
 	rm -r _build/doctrees/*
 
-format:
-	find $(SOURCEDIR) -name '*.rst' | xargs docstrfmt $(FORMAT_EXTRA_ARGS) -i -v
-
-formatcheck: FORMAT_EXTRA_ARGS := --check
-formatcheck: format
-
-.PHONY: help Makefile clean format formatcheck
+.PHONY: help Makefile
 
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).

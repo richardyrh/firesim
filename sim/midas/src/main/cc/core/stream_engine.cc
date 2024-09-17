@@ -1,7 +1,6 @@
 #include "stream_engine.h"
 
 #include <cassert>
-#include <stdio.h>
 
 void StreamEngine::init() {
   for (auto &stream : this->fpga_to_cpu_streams) {
