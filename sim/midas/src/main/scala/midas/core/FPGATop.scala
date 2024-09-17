@@ -3,16 +3,25 @@
 package midas
 package core
 
-import junctions._
-import midas.widgets._
-import midas.passes.HostClockSource
+import scala.collection.mutable
+import scala.collection.immutable.ListMap
+
 import chisel3._
 import chisel3.util._
-import freechips.rocketchip.amba.axi4._
-import org.chipsalliance.cde.config.{Field, Parameters}
-import freechips.rocketchip.diplomacy._
 
-import scala.collection.immutable.ListMap
+import freechips.rocketchip.amba.axi4._
+import freechips.rocketchip.util.DecoupledHelper
+import freechips.rocketchip.diplomacy._
+import org.chipsalliance.cde.config.{Field, Parameters}
+
+import midas.PrintfLogger
+import midas.widgets._
+import midas.passes.HostClockSource
+
+import firesim.lib.nasti._
+import firesim.lib.bridgeutils._
+import midas.targetutils.xdc._
+import midas.targetutils.FireSimQueueHelper
 
 /** The following [[Field]] s capture the parameters of the four AXI4 bus types presented to a simulator (in
   * [[FPGATop]]). A [[PlatformShim]] is free to adapt these widths, apply address offsets, etc..., but the values set
@@ -117,6 +126,18 @@ case class CPUManagedAXI4Params(
   )
 }
 
+class QSFPBundle(qsfpBitWidth: Int) extends Bundle {
+  val channel_up = Input(Bool())
+  val tx         = Decoupled(UInt(qsfpBitWidth.W))
+  val rx         = Flipped(Decoupled(UInt(qsfpBitWidth.W)))
+}
+
+object QSFPBundle {
+  def apply(qsfpBitWidth: Int): QSFPBundle = {
+    new QSFPBundle(qsfpBitWidth)
+  }
+}
+
 // Platform agnostic wrapper of the simulation models for FPGA
 class FPGATop(implicit p: Parameters) extends LazyModule with HasWidgets {
   require(p(HostMemNumChannels) <= 4, "Midas-level simulation harnesses support up to 4 channels")
@@ -125,7 +146,7 @@ class FPGATop(implicit p: Parameters) extends LazyModule with HasWidgets {
 
   val bridgeAnnos                                                                              = p(SimWrapperKey).annotations.collect { case ba: BridgeIOAnnotation => ba }
   val bridgeModuleMap: ListMap[BridgeIOAnnotation, BridgeModule[_ <: Record with HasChannels]] =
-    ListMap((bridgeAnnos.map(anno => anno -> addWidget(anno.elaborateWidget))): _*)
+    ListMap((bridgeAnnos.map(anno => anno -> addWidget(BridgeIOAnnotationToElaboration(anno)))): _*)
 
   // Find all bridges that wish to be allocated FPGA DRAM, and group them
   // according to their memoryRegionName. Requested addresses will be unified
@@ -133,7 +154,7 @@ class FPGATop(implicit p: Parameters) extends LazyModule with HasWidgets {
   // 1) Multiple bridges using the same name to share (and thus communicate through) DRAM
   // 2) Orthogonal address sets to be recombined into a contiguous one. Ex.
   //    When cacheline-striping a target's memory system across multiple FASED
-  //    memory channels, it's useful to ee a single contiguous region of host
+  //    memory channels, it's useful to see a single contiguous region of host
   //    memory that corresponds to the target's memory space.
   val bridgesRequiringDRAM                                                                     = bridgeModuleMap.values.collect({ case b: UsesHostDRAM => b })
   val combinedRegions                                                                          = bridgesRequiringDRAM.groupBy(_.memoryRegionName)
@@ -147,7 +168,7 @@ class FPGATop(implicit p: Parameters) extends LazyModule with HasWidgets {
     regionTuples.toSeq.sortBy(r => (BytesOfDRAMRequired(r._2), r._1.head.memoryRegionName)).reverse
 
   // Allocate memory regions using a base-and-bounds scheme
-  val dramOffsetsRev       = sortedRegionTuples.foldLeft(Seq(BigInt(0)))({ case (offsets, (bridgeSeq, addresses)) =>
+  val dramOffsetsRev       = sortedRegionTuples.foldLeft(Seq(BigInt(0)))({ case (offsets, (_, addresses)) =>
     val requestedCapacity = BytesOfDRAMRequired(addresses)
     val pageAligned4k     = ((requestedCapacity + 4095) >> 12) << 12
     (offsets.head + pageAligned4k) +: offsets
@@ -275,6 +296,19 @@ class FPGATop(implicit p: Parameters) extends LazyModule with HasWidgets {
     .collect { case b: StreamFromHostCPU => b }
   val hasFromHostCPUStreams         = bridgesWithFromHostCPUStreams.nonEmpty
 
+  val bridgesWithToQSFPStreams = bridgeModuleMap.values
+    .collect { case b: StreamToQSFP => b }
+  val hasToQSFPStreams         = bridgesWithToQSFPStreams.nonEmpty
+
+  val bridgesWithFromQSFPStreams = bridgeModuleMap.values
+    .collect { case b: StreamFromQSFP => b }
+  val hasFromQSFPStreams         = bridgesWithFromQSFPStreams.nonEmpty
+
+  // Below separates bridges for P2P (between 2 FPGAs) using partial functions
+  val bridgesWithToPeerFPGAStreams = bridgeModuleMap.values
+    .collect { case b: StreamToPeerFPGA => b }
+  val hasToFPGAStreams             = bridgesWithToPeerFPGAStreams.nonEmpty
+
   def printStreamSummary(streams: Iterable[StreamParameters], header: String): Unit = {
     val summaries = streams.toList match {
       case Nil => "None" :: Nil
@@ -287,16 +321,28 @@ class FPGATop(implicit p: Parameters) extends LazyModule with HasWidgets {
   val toCPUStreamParams   = bridgesWithToHostCPUStreams.map { _.streamSourceParams }
   val fromCPUStreamParams = bridgesWithFromHostCPUStreams.map { _.streamSinkParams }
 
-  val (streamingEngine, cpuManagedAXI4NodeTuple, fpgaManagedAXI4NodeTuple) =
-    if (toCPUStreamParams.isEmpty && fromCPUStreamParams.isEmpty) { (None, None, None) }
+  val toQSFPStreamParams   = bridgesWithToQSFPStreams.map { _.streamSourceParams }
+  val fromQSFPStreamParams = bridgesWithFromQSFPStreams.map { _.streamSinkParams }
+
+  val qsfpToStreamCnt   = bridgesWithToQSFPStreams.toSeq.length
+  val qsfpFromStreamCnt = bridgesWithFromQSFPStreams.toSeq.length
+  val qsfpCnt           = qsfpToStreamCnt
+  require(qsfpToStreamCnt == qsfpFromStreamCnt, "qsfpToStream & qsfpFromStream does not match")
+
+  def printQSFPSummary(): Unit = {
+    println(s"Total QSFP Channels ${qsfpCnt}")
+    println(s"QSFP bits at FPGATop ${p(FPGATopQSFPBitWidth)}")
+  }
+
+  val toPeerFPGAStreamParams = bridgesWithToPeerFPGAStreams.map { _.streamSourceParams } // for p2p
+
+  val (streamingEngine, cpuManagedAXI4NodeTuple) =
+    if (toCPUStreamParams.isEmpty && fromCPUStreamParams.isEmpty) { (None, None) }
     else {
+      // CPU Streaming Engine (AWS PCIS)
       val streamEngineParams = StreamEngineParameters(toCPUStreamParams.toSeq, fromCPUStreamParams.toSeq)
       val streamingEngine    = addWidget(p(StreamEngineInstantiatorKey)(streamEngineParams, p))
 
-      require(
-        streamingEngine.fpgaManagedAXI4NodeOpt.isEmpty || p(FPGAManagedAXI4Key).nonEmpty,
-        "Selected StreamEngine uses the FPGA-managed AXI4 interface but it is not available on this platform.",
-      )
       require(
         streamingEngine.cpuManagedAXI4NodeOpt.isEmpty || p(CPUManagedAXI4Key).nonEmpty,
         "Selected StreamEngine uses the CPU-managed AXI4 interface, but it is not available on this platform.",
@@ -323,6 +369,19 @@ class FPGATop(implicit p: Parameters) extends LazyModule with HasWidgets {
         }
         (node, params)
       }
+      (Some(streamingEngine), cpuManagedAXI4NodeTuple)
+    }
+
+  val (fpgaStreamingEngine, fpgaManagedAXI4NodeTuple) =
+    if (toPeerFPGAStreamParams.isEmpty) { (None, None) }
+    else {
+      // FPGA Streaming Enginer (AWS PCIM)
+      val fpgaStreamEngineParams = StreamEngineParameters(toPeerFPGAStreamParams.toSeq, Seq())
+      val fpgaStreamingEngine    = addWidget(p(FPGAStreamEngineInstantiatorKey)(fpgaStreamEngineParams, p))
+      require(
+        fpgaStreamingEngine.fpgaManagedAXI4NodeOpt.isEmpty || p(FPGAManagedAXI4Key).nonEmpty,
+        "Selected StreamEngine uses the FPGA-managed AXI4 interface but it is not available on this platform.",
+      )
 
       val fpgaManagedAXI4NodeTuple = p(FPGAManagedAXI4Key).map { params =>
         val node = AXI4SlaveNode(
@@ -344,7 +403,7 @@ class FPGATop(implicit p: Parameters) extends LazyModule with HasWidgets {
           )
         )
 
-        streamingEngine.fpgaManagedAXI4NodeOpt match {
+        fpgaStreamingEngine.fpgaManagedAXI4NodeOpt match {
           case Some(engineNode) =>
             node := AXI4IdIndexer(params.idBits) := AXI4Buffer() := engineNode
           case None             =>
@@ -352,14 +411,94 @@ class FPGATop(implicit p: Parameters) extends LazyModule with HasWidgets {
         }
         (node, params)
       }
-      (Some(streamingEngine), cpuManagedAXI4NodeTuple, fpgaManagedAXI4NodeTuple)
+      (Some(fpgaStreamingEngine), fpgaManagedAXI4NodeTuple)
     }
 
   def genHeader(sb: StringBuilder): Unit = {
     super.genWidgetHeaders(sb, targetMemoryRegions)
   }
 
+  def genPartitioningConstants(sb: StringBuilder): Unit = {
+    super.genWidgetPartitioningConstants(sb)
+  }
+
+  def genPeerToPeerAddrMap(sb: StringBuilder): Unit = {
+    super.genWidgetPeerToPeerAddrMap(sb)
+  }
+
   lazy val module = new FPGATopImp(this)
+}
+
+object HostPortIOConnectChannels2Port {
+  def apply[T <: Data](hp: HostPortIO[T], bridgeAnno: BridgeIOAnnotation, targetIO: TargetChannelIO): Unit = {
+    val local2globalName                 = bridgeAnno.channelMapping.toMap
+    val toHostChannels, fromHostChannels = mutable.ArrayBuffer[ReadyValidIO[Data]]()
+
+    // Bind payloads to HostPort, and collect channels
+    for ((field, localName) <- hp.inputWireChannels()) {
+      val tokenChannel = targetIO.wireOutputPortMap(local2globalName(localName))
+      field := tokenChannel.bits
+      toHostChannels += tokenChannel
+    }
+
+    for ((field, localName) <- hp.outputWireChannels()) {
+      val tokenChannel = targetIO.wireInputPortMap(local2globalName(localName))
+      tokenChannel.bits := field
+      fromHostChannels += tokenChannel
+    }
+
+    for ((field, localName) <- hp.inputRVChannels()) {
+      val (fwdChPort, revChPort) = targetIO.rvOutputPortMap(local2globalName(localName + "_fwd"))
+      field.valid    := fwdChPort.bits.valid
+      revChPort.bits := field.ready
+
+      import chisel3.ExplicitCompileOptions.NotStrict
+      field.bits := fwdChPort.bits.bits
+
+      fromHostChannels += revChPort
+      toHostChannels += fwdChPort
+    }
+
+    for ((field, localName) <- hp.outputRVChannels()) {
+      val (fwdChPort, revChPort) = targetIO.rvInputPortMap(local2globalName(localName + "_fwd"))
+      fwdChPort.bits.valid := field.valid
+      field.ready          := revChPort.bits
+
+      import chisel3.ExplicitCompileOptions.NotStrict
+      fwdChPort.bits.bits := field.bits
+      fromHostChannels += fwdChPort
+      toHostChannels += revChPort
+    }
+
+    hp.toHost.hValid   := toHostChannels.foldLeft(true.B)(_ && _.valid)
+    hp.fromHost.hReady := fromHostChannels.foldLeft(true.B)(_ && _.ready)
+
+    // Dequeue from toHost channels only if all toHost tokens are available,
+    // and the bridge consumes it
+    val toHostHelper   = DecoupledHelper((hp.toHost.hReady +: toHostChannels.map(_.valid)).toSeq: _*)
+    toHostChannels.foreach(ch => ch.ready := toHostHelper.fire(ch.valid))
+
+    // Enqueue into the toHost channels only once all toHost channels can accept the token
+    val fromHostHelper = DecoupledHelper((hp.fromHost.hValid +: fromHostChannels.map(_.ready)).toSeq: _*)
+    fromHostChannels.foreach(ch => ch.valid := fromHostHelper.fire(ch.ready))
+
+    // Tie off the target clock; these should be unused in the BridgeModule
+    SimUtils.findClocks(hp.hBits).map(_ := false.B.asClock)
+  }
+}
+
+object ChannelizedHostPortIOConnectChannels2Port {
+  def apply(hp: ChannelizedHostPortIO, bridgeAnno: BridgeIOAnnotation, targetIO: TargetChannelIO): Unit = {
+    val local2globalName = bridgeAnno.channelMapping.toMap
+    for ((_, channel, metadata) <- hp.channels) {
+      val localName = hp.reverseElementMap(channel)
+      if (metadata.bridgeSunk) {
+        channel <> targetIO.wireOutputPortMap(local2globalName(localName))
+      } else {
+        targetIO.wireInputPortMap(local2globalName(localName)) <> channel
+      }
+    }
+  }
 }
 
 class FPGATopImp(outer: FPGATop)(implicit p: Parameters) extends LazyModuleImp(outer) {
@@ -370,13 +509,18 @@ class FPGATopImp(outer: FPGATop)(implicit p: Parameters) extends LazyModuleImp(o
   val ctrl = IO(Flipped(WidgetMMIO()))
   val mem  = IO(Vec(outer.memAXI4Nodes.length, AXI4Bundle(p(HostMemChannelKey).axi4BundleParams)))
 
+  val qsfpBitWidth = p(FPGATopQSFPBitWidth)
+  val qsfp         = IO(Vec(outer.qsfpCnt, QSFPBundle(qsfpBitWidth)))
+
   val cpu_managed_axi4 = outer.cpuManagedAXI4NodeTuple.map { case (node, params) =>
-    val port = IO(Flipped(AXI4Bundle(params.axi4BundleParams)))
+    println("Creating AXI4 Slave for cpu managed node")
+    val port = IO(Flipped(AXI4Bundle(params.axi4BundleParams))) // Flipped makes AXIMaster a slave
     node.out.head._1 <> port
     port
   }
 
   val fpga_managed_axi4 = outer.fpgaManagedAXI4NodeTuple.map { case (node, params) =>
+    println("Creating AXI4 Master for FPGA managed node")
     val port = IO(AXI4Bundle(params.axi4BundleParams))
     port <> node.in.head._1
     port
@@ -384,6 +528,7 @@ class FPGATopImp(outer: FPGATop)(implicit p: Parameters) extends LazyModuleImp(o
   // Hack: Don't touch the ports so that we can use FPGATop as top-level in ML simulation
   dontTouch(ctrl)
   dontTouch(mem)
+  dontTouch(qsfp)
   cpu_managed_axi4.foreach(dontTouch(_))
   fpga_managed_axi4.foreach(dontTouch(_))
 
@@ -402,13 +547,65 @@ class FPGATopImp(outer: FPGATop)(implicit p: Parameters) extends LazyModuleImp(o
 
   // Instantiate bridge widgets.
   outer.bridgeModuleMap.map({ case (bridgeAnno, bridgeMod) =>
-    val widgetChannelPrefix = s"${bridgeAnno.target.ref}"
-    bridgeMod.module.hPort.connectChannels2Port(bridgeAnno, simIo)
+    bridgeMod.module.hPort match {
+      case hp: ClockTokenVector      => hp.connectChannels2Port(bridgeAnno, simIo)
+      case hp: HostPortIO[_]         => HostPortIOConnectChannels2Port(hp, bridgeAnno, simIo)
+      case hp: ChannelizedHostPortIO => ChannelizedHostPortIOConnectChannels2Port(hp, bridgeAnno, simIo)
+    }
   })
 
   outer.printStreamSummary(outer.toCPUStreamParams, "Bridge Streams To CPU:")
   outer.printStreamSummary(outer.fromCPUStreamParams, "Bridge Streams From CPU:")
+  outer.printStreamSummary(outer.toQSFPStreamParams, "Bridge Streams To QSFP")
+  outer.printStreamSummary(outer.fromQSFPStreamParams, "Bridge Streams From QSFP")
+  outer.printStreamSummary(outer.toPeerFPGAStreamParams, "Bridge Streams To FPGA")
 
+  QSFPPortLocHint()
+
+  outer.bridgesWithToQSFPStreams.zip(outer.bridgesWithFromQSFPStreams).zipWithIndex.foreach { x =>
+    val toQSFPsrc    = x._1._1
+    val fromQSFPsink = x._1._2
+    val idx          = x._2
+
+    val bramQueueDepth          = p(FPGATopQSFPBRAMQueueDepth)
+    val qsfpStreamBitWidth      = p(QSFPStreamBitWidth)
+    val toQSFPBigTokenQueueIO   = FireSimQueueHelper.makeIO(UInt(qsfpStreamBitWidth.W), bramQueueDepth)
+    val fromQSFPBigTokenQueueIO = FireSimQueueHelper.makeIO(UInt(qsfpStreamBitWidth.W), bramQueueDepth)
+    val chan_up                 = qsfp(idx).channel_up
+
+    toQSFPBigTokenQueueIO.enq <> toQSFPsrc.streamEnq
+
+    qsfp(idx).tx.bits               := toQSFPBigTokenQueueIO.deq.bits
+    qsfp(idx).tx.valid              := toQSFPBigTokenQueueIO.deq.valid && chan_up && !reset.asBool
+    toQSFPBigTokenQueueIO.deq.ready := qsfp(idx).tx.ready && chan_up && !reset.asBool
+
+    fromQSFPsink.streamDeq <> fromQSFPBigTokenQueueIO.deq
+
+    fromQSFPBigTokenQueueIO.enq.bits  := qsfp(idx).rx.bits
+    fromQSFPBigTokenQueueIO.enq.valid := qsfp(idx).rx.valid && chan_up
+    qsfp(idx).rx.ready                := fromQSFPBigTokenQueueIO.enq.ready && chan_up && !reset.asBool
+
+    if (p(MetasimPrintfEnable)) {
+      when(qsfp(idx).rx.fire()) {
+        PrintfLogger.logInfo("FPGATop qsfp(%d).rx.fire\n", idx.U)
+        for (i <- 0 until qsfpBitWidth / 64) {
+          val start = i * 64
+          val end   = (i + 1) * 64
+          PrintfLogger.logInfo("FPGATop bits(%d, %d): 0x%x\n", (end - 1).U, start.U, qsfp(idx).rx.bits(end - 1, start))
+        }
+      }
+      when(qsfp(idx).tx.fire()) {
+        PrintfLogger.logInfo("FPGATop qsfp(%d).tx.fire\n", idx.U)
+        for (i <- 0 until qsfpBitWidth / 64) {
+          val start = i * 64
+          val end   = (i + 1) * 64
+          PrintfLogger.logInfo("FPGATop bits(%d, %d): 0x%x\n", (end - 1).U, start.U, qsfp(idx).tx.bits(end - 1, start))
+        }
+      }
+    }
+  }
+
+  // Connect CPU bridges to CPU stream
   outer.streamingEngine.map { streamingEngine =>
     val toHost = streamingEngine.streamsToHostCPU
     for (((sink, src), idx) <- toHost.zip(outer.bridgesWithToHostCPUStreams).zipWithIndex) {
@@ -431,9 +628,25 @@ class FPGATopImp(outer: FPGATop)(implicit p: Parameters) extends LazyModuleImp(o
     }
   }
 
+  // Connect PCIM bridges to FPGA streaming engine
+  outer.fpgaStreamingEngine.map { streamingEngine =>
+    val toPeer = streamingEngine.streamsToHostCPU
+    for (((sink, src), idx) <- toPeer.zip(outer.bridgesWithToPeerFPGAStreams).zipWithIndex) {
+      val allocatedIdx = src.toPeerFPGAStreamIdx
+      require(
+        allocatedIdx == idx,
+        s"Allocated to-peer-fpga stream index ${allocatedIdx} does not match stream vector index ${idx}.",
+      )
+      sink <> src.streamEnq
+    }
+  // Receving peer-to-peer transactions happens on PCI-S
+  // Hence the receiving side of the stream should is included in outer.streamingEngine
+  }
+
   outer.genCtrlIO(ctrl)
   outer.printMemoryMapSummary()
   outer.printHostDRAMSummary()
+  outer.printQSFPSummary()
 
   val confCtrl        = (ctrl.nastiXIdBits, ctrl.nastiXAddrBits, ctrl.nastiXDataBits)
   val memParams       = p(HostMemChannelKey).axi4BundleParams
@@ -446,61 +659,78 @@ class FPGATopImp(outer: FPGATop)(implicit p: Parameters) extends LazyModuleImp(o
 
     sb.append("#ifdef GET_METASIM_INTERFACE_CONFIG\n")
 
-    def printConfig(conf: (Int, Int, Int)): Unit = {
+    def printAXIConfig(conf: (Int, Int, Int)): Unit = {
       val (idBits, addrBits, dataBits) = conf
       sb.append("AXI4Config{")
       sb.append(s"${idBits}, ${addrBits}, ${dataBits}")
       sb.append("}")
     }
 
+    def printQSFPConfig(conf: (Int)): Unit = {
+      val (dataBits) = conf
+      sb.append("FPGATopQSFPConfig{")
+      sb.append(s"${dataBits}, ${outer.qsfpCnt}")
+      sb.append("}")
+    }
+
     sb.append("static constexpr TargetConfig conf_target{\n")
     sb.append(".ctrl = ")
-    printConfig(confCtrl)
+    printAXIConfig(confCtrl)
 
     sb.append(",\n.mem = ")
-    printConfig(confMem)
+    printAXIConfig(confMem)
 
     sb.append(s",\n.mem_num_channels = ${outer.memAXI4Nodes.length}")
 
     sb.append(",\n.cpu_managed = ")
     confCPUManaged match {
       case None       => sb.append("std::nullopt")
-      case Some(conf) => printConfig(conf)
+      case Some(conf) => printAXIConfig(conf)
     }
     sb.append(",\n.fpga_managed = ")
     confFPGAManaged match {
       case None       => sb.append("std::nullopt")
-      case Some(conf) => printConfig(conf)
+      case Some(conf) => printAXIConfig(conf)
     }
+
+    sb.append(",\n.qsfp = ")
+    printQSFPConfig(qsfpBitWidth)
+
     sb.append(s",\n.target_name = ${CStrLit(target).toC}")
+
     sb.append("\n};\n")
 
     sb.append("#undef GET_METASIM_INTERFACE_CONFIG\n")
     sb.append("#endif // GET_METASIM_INTERFACE_CONFIG\n")
   }
 
-  def genVHeader(sb: StringBuilder)(implicit p: Parameters) = {
+  def genVHeader(sb: StringBuilder) = {
     sb.append("\n// Simulation Constants\n")
 
     def printMacro(prefix: String, name: String, value: Long): Unit = {
       sb.append(s"`define ${prefix}_${name} ${value}\n")
     }
 
-    def printConfig(prefix: String, conf: (Int, Int, Int)) {
+    def printAXIConfig(prefix: String, conf: (Int, Int, Int)): Unit = {
       val (idBits, addrBits, dataBits) = conf
       printMacro(prefix, "ID_BITS", idBits)
       printMacro(prefix, "ADDR_BITS", addrBits)
       printMacro(prefix, "DATA_BITS", dataBits)
     }
 
-    printConfig("CTRL", confCtrl)
+    printAXIConfig("CTRL", confCtrl)
     confCPUManaged.foreach { conf =>
-      printConfig("CPU_MANAGED_AXI4", conf)
+      printAXIConfig("CPU_MANAGED_AXI4", conf)
       printMacro("CPU_MANAGED_AXI4", "PRESENT", 1.toLong)
     }
     confFPGAManaged.foreach { conf =>
-      printConfig("FPGA_MANAGED_AXI4", conf)
+      printAXIConfig("FPGA_MANAGED_AXI4", conf)
       printMacro("FPGA_MANAGED_AXI4", "PRESENT", 1.toLong)
+    }
+
+    printMacro("QSFP", "DATA_BITS", qsfpBitWidth.toLong)
+    for (idx <- 0 until outer.bridgesWithToQSFPStreams.toSeq.length) {
+      printMacro("QSFP", s"HAS_CHANNEL${idx}", 1.toLong)
     }
 
     if (outer.memAXI4Nodes.nonEmpty) {
@@ -508,6 +738,14 @@ class FPGATopImp(outer: FPGATop)(implicit p: Parameters) extends LazyModuleImp(o
         printMacro("MEM", s"HAS_CHANNEL${idx - 1}", 1.toLong)
       }
     }
-    printConfig("MEM", confMem)
+    printAXIConfig("MEM", confMem)
+  }
+
+  def genPartitioningConstants(sb: StringBuilder) = {
+    outer.genPartitioningConstants(sb)
+  }
+
+  def genPeerToPeerAddrMap(sb: StringBuilder) = {
+    outer.genPeerToPeerAddrMap(sb)
   }
 }
