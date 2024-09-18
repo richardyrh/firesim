@@ -3,10 +3,6 @@ channels:
     - ucb-bar
     - nodefaults
 
-# non-standard key used in conda-lock: https://github.com/conda-incubator/conda-lock#platform-specification
-platforms:
-    - linux-64
-
 dependencies:
     # https://conda-forge.org/feedstock-outputs/
     #   filterable list of all conda-forge packages
@@ -29,7 +25,7 @@ dependencies:
     - conda-gcc-specs
     - binutils
 
-    - riscv-tools==1.0.3 # from ucb-bar channel - https://github.com/ucb-bar/riscv-tools-feedstock
+    - riscv-tools==1.0.6 # from ucb-bar channel - https://github.com/ucb-bar/riscv-tools-feedstock
 
     # firemarshal deps
     - qemu # from ucb-bar channel - https://github.com/ucb-bar/qemu-feedstock
@@ -42,7 +38,7 @@ dependencies:
     - bison
     - flex
     - expat
-    - python>=3.8
+    - python>=3.9,<3.11
     - bc
     - sphinx
     - sphinx_rtd_theme
@@ -82,17 +78,23 @@ dependencies:
     - graphviz
     - expect
     - dtc
-    - verilator==5.008
+    - verilator==5.022
     - screen
     - elfutils
     - libdwarf-dev==0.0.0.20190110_28_ga81397fc4 # from ucb-bar channel - using mainline libdwarf-feedstock
-    - conda-lock=1.4
     - autoconf
     - jq
+
+    # used in build-setup.sh as well
+    - conda-lock=2.5.7
 
     # clang-format for driver coding style enforcement.
     - clang-format
     - clang-tools
+    - parallel
+
+    # black for manager python coding style enforcement
+    - black
 
     # python packages
     # While it is possible to install using pip after creating the

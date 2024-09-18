@@ -3,7 +3,6 @@
 package firesim.midasexamples
 
 import java.io.File
-import org.chipsalliance.cde.config.Config
 import org.scalatest.Suites
 
 import firesim.TestSuiteUtil._
@@ -11,16 +10,16 @@ import firesim.BasePlatformConfig
 
 abstract class PrintfSuite(
   targetName:         String,
-  targetConfigs:      String                  = "NoConfig",
-  platformConfigs:    Seq[Class[_ <: Config]] = Seq(),
-  basePlatformConfig: BasePlatformConfig      = BaseConfigs.F1,
-  simulationArgs:     Seq[String]             = Seq(),
+  targetConfigs:      String             = "NoConfig",
+  platformConfigs:    Seq[String]        = Seq(),
+  basePlatformConfig: BasePlatformConfig = BaseConfigs.F1,
+  simulationArgs:     Seq[String]        = Seq(),
 ) extends TutorialSuite(targetName, targetConfigs, platformConfigs, basePlatformConfig, simulationArgs) {
 
   /** Check that we are extracting from the desired ROI by checking that the bridge-inserted cycle prefix matches the
     * target-side cycle prefix
     */
-  def checkPrintCycles(filename: String, startCycle: Int, endCycle: Int, linesPerCycle: Int) {
+  def checkPrintCycles(filename: String, startCycle: Int, endCycle: Int, linesPerCycle: Int): Unit = {
     val synthLogFile     = new File(genDir, s"/${filename}")
     val synthPrintOutput = extractLines(synthLogFile, prefix = "")
     val length           = synthPrintOutput.size
@@ -44,7 +43,7 @@ abstract class PrintfSuite(
     stdoutPrefix:     String = "SYNTHESIZED_PRINT ",
     synthPrefix:      String = "SYNTHESIZED_PRINT ",
     synthLinesToDrop: Int    = 0,
-  ) {
+  ): Unit = {
     val verilatedLogFile = new File(outDir, s"/${targetName}.${backend}.out")
     val synthLogFile     = new File(genDir, s"/${synthLog}")
     val verilatedOutput  = extractLines(verilatedLogFile, stdoutPrefix).sorted
@@ -54,7 +53,7 @@ abstract class PrintfSuite(
 
   def addChecks(backend: String): Unit
 
-  override def defineTests(backend: String, debug: Boolean) {
+  override def defineTests(backend: String, debug: Boolean): Unit = {
     it should "run in the simulator" in {
       assert(run(backend, debug, args = simulationArgs) == 0)
     }
@@ -70,13 +69,12 @@ abstract class PrintModuleTest(val platform: BasePlatformConfig)
       simulationArgs     = Seq("+print-no-cycle-prefix", "+print-file=synthprinttest.out"),
       basePlatformConfig = platform,
     ) {
-  override def addChecks(backend: String) {
+  override def addChecks(backend: String): Unit = {
     diffSynthesizedLog(backend, "synthprinttest.out0")
   }
 }
 
-class PrintfModuleF1Test    extends PrintModuleTest(BaseConfigs.F1)
-class PrintfModuleVitisTest extends PrintModuleTest(BaseConfigs.Vitis)
+class PrintfModuleF1Test extends PrintModuleTest(BaseConfigs.F1)
 
 abstract class NarrowPrintfModuleTest(val platform: BasePlatformConfig)
     extends PrintfSuite(
@@ -84,13 +82,12 @@ abstract class NarrowPrintfModuleTest(val platform: BasePlatformConfig)
       simulationArgs     = Seq("+print-no-cycle-prefix", "+print-file=synthprinttest.out"),
       basePlatformConfig = platform,
     ) {
-  override def addChecks(backend: String) {
+  override def addChecks(backend: String): Unit = {
     diffSynthesizedLog(backend, "synthprinttest.out0")
   }
 }
 
-class NarrowPrintfModuleF1Test    extends NarrowPrintfModuleTest(BaseConfigs.F1)
-class NarrowPrintfModuleVitisTest extends NarrowPrintfModuleTest(BaseConfigs.Vitis)
+class NarrowPrintfModuleF1Test extends NarrowPrintfModuleTest(BaseConfigs.F1)
 
 abstract class MulticlockPrintfModuleTest(val platform: BasePlatformConfig)
     extends PrintfSuite(
@@ -98,7 +95,7 @@ abstract class MulticlockPrintfModuleTest(val platform: BasePlatformConfig)
       simulationArgs     = Seq("+print-file=synthprinttest.out", "+print-no-cycle-prefix"),
       basePlatformConfig = platform,
     ) {
-  override def addChecks(backend: String) {
+  override def addChecks(backend: String): Unit = {
     diffSynthesizedLog(backend, "synthprinttest.out0")
     diffSynthesizedLog(
       backend,
@@ -111,23 +108,22 @@ abstract class MulticlockPrintfModuleTest(val platform: BasePlatformConfig)
   }
 }
 
-class MulticlockPrintF1Test    extends MulticlockPrintfModuleTest(BaseConfigs.F1)
-class MulticlockPrintVitisTest extends MulticlockPrintfModuleTest(BaseConfigs.Vitis)
+class MulticlockPrintF1Test extends MulticlockPrintfModuleTest(BaseConfigs.F1)
 
 class AutoCounterPrintfF1Test
     extends PrintfSuite(
       "AutoCounterPrintfModule",
       simulationArgs  = Seq("+print-file=synthprinttest.out"),
-      platformConfigs = Seq(classOf[AutoCounterPrintf]),
+      platformConfigs = Seq("AutoCounterPrintf"),
     ) {
-  override def addChecks(backend: String) {
+  override def addChecks(backend: String): Unit = {
     diffSynthesizedLog(backend, "synthprinttest.out0", stdoutPrefix = "AUTOCOUNTER_PRINT CYCLE", synthPrefix = "CYCLE")
   }
 }
 
 class TriggerPredicatedPrintfF1Test
     extends PrintfSuite("TriggerPredicatedPrintf", simulationArgs = Seq("+print-file=synthprinttest.out")) {
-  override def addChecks(backend: String) {
+  override def addChecks(backend: String): Unit = {
     import TriggerPredicatedPrintfConsts._
     checkPrintCycles("synthprinttest.out0", assertTriggerCycle + 2, deassertTriggerCycle + 2, linesPerCycle = 2)
   }
@@ -142,7 +138,7 @@ class PrintfCycleBoundsTestBase(startCycle: Int, endCycle: Int)
         s"+print-end=${endCycle}",
       ),
     ) {
-  override def addChecks(backend: String) {
+  override def addChecks(backend: String): Unit = {
     checkPrintCycles("synthprinttest.out0", startCycle, endCycle, linesPerCycle = 4)
   }
 }
@@ -155,7 +151,7 @@ class PrintfGlobalResetConditionTest
       simulationArgs = Seq("+print-no-cycle-prefix", "+print-file=synthprinttest.out"),
     ) {
 
-  def assertSynthesizedLogEmpty(synthLog: String, backend: String) {
+  def assertSynthesizedLogEmpty(synthLog: String, backend: String): Unit = {
     s"${synthLog} for ${backend}" should "be empty" in {
       val synthLogFile = new File(genDir, s"/${synthLog}")
       val lines        = extractLines(synthLogFile, prefix = "")
@@ -163,7 +159,7 @@ class PrintfGlobalResetConditionTest
     }
   }
 
-  override def defineTests(backend: String, debug: Boolean) {
+  override def defineTests(backend: String, debug: Boolean): Unit = {
     it should s"run in the ${backend} simulator" in {
       assert(run(backend, debug, args = simulationArgs) == 0)
     }
@@ -176,7 +172,6 @@ class PrintfGlobalResetConditionTest
 class PrintfSynthesisCITests
     extends Suites(
       new PrintfModuleF1Test,
-      new PrintfModuleVitisTest,
       new NarrowPrintfModuleF1Test,
       new MulticlockPrintF1Test,
       new PrintfCycleBoundsF1Test,
