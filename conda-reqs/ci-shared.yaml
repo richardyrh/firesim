@@ -3,8 +3,6 @@ channels:
     - ucb-bar
     - nodefaults
 
-# remove non-standard conda-lock 'platforms' key to use this file with conda-incubator/setup-miniconda GH action
-
 dependencies:
     # https://conda-forge.org/feedstock-outputs/
     #   filterable list of all conda-forge packages
@@ -42,3 +40,4 @@ dependencies:
     - pip:
         - fab-classic>=1.19.2
         - azure-mgmt-resourcegraph # ci-only
+        - bcrypt<4.0.0

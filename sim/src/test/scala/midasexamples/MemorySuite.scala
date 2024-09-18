@@ -7,16 +7,12 @@ import java.io._
 import org.scalatest.Suites
 import org.scalatest.matchers.should._
 
-import org.chipsalliance.cde.config.Config
-import org.chipsalliance.cde.config.Parameters
-import org.chipsalliance.cde.config._
-
-import firesim.{BasePlatformConfig, TestSuiteCommon}
+import firesim.BasePlatformConfig
 
 abstract class LoadMemTest(
   override val basePlatformConfig: BasePlatformConfig,
   val extraArgs:                   Seq[String] = Seq(),
-) extends TutorialSuite("LoadMemModule", platformConfigs = Seq(classOf[NoSynthAsserts]))
+) extends TutorialSuite("LoadMemModule", platformConfigs = Seq("NoSynthAsserts", "LoadMemLPC"))
     with Matchers {
 
   /** Helper to generate tests strings.
@@ -38,7 +34,7 @@ abstract class LoadMemTest(
     * @param debug
     *   When true, captures waves from the simulation
     */
-  override def defineTests(backend: String, debug: Boolean) {
+  override def defineTests(backend: String, debug: Boolean): Unit = {
     it should "read data provided by LoadMem" in {
       // Generate a random string spanning 2 sectors with a fixed seed.
       val numLines = 128
@@ -69,16 +65,12 @@ abstract class LoadMemTest(
   }
 }
 
-class LoadMemF1Test    extends LoadMemTest(BaseConfigs.F1)
-class LoadMemVitisTest extends LoadMemTest(BaseConfigs.Vitis)
+class LoadMemF1Test extends LoadMemTest(BaseConfigs.F1)
 
-class FastLoadMemF1Test    extends LoadMemTest(BaseConfigs.F1, extraArgs = Seq("+fastloadmem"))
-class FastLoadMemVitisTest extends LoadMemTest(BaseConfigs.Vitis, extraArgs = Seq("+fastloadmem"))
+class FastLoadMemF1Test extends LoadMemTest(BaseConfigs.F1, extraArgs = Seq("+fastloadmem"))
 
 class MemoryCITests
     extends Suites(
       new LoadMemF1Test,
-      new LoadMemVitisTest,
       new FastLoadMemF1Test,
-      new FastLoadMemVitisTest,
     )

@@ -1,14 +1,16 @@
 External Tutorial Setup
-===================================
+=======================
 
-This section of the documentation is for external attendees of a
-in-person FireSim and Chipyard tutorial.
-Please follow along with the following steps to get setup if you already have an AWS EC2 account.
+This section of the documentation is for external attendees of a in-person FireSim and
+Chipyard tutorial. Please follow along with the following steps to get setup if you
+already have an AWS EC2 account.
 
-.. Note:: These steps should take around 2hrs if you already have an AWS EC2 account.
+.. note::
 
-1. Start following the FireSim documentation from :ref:`initial-setup` but ending at :ref:`setting-up-firesim-repo` (make sure to **NOT** clone the FireSim repository)
+    These steps should take around 2hrs if you already have an AWS EC2 account.
 
+1. Start following the FireSim documentation from :ref:`initial-setup` but ending at
+   :ref:`setting-up-firesim-repo` (make sure to **NOT** clone the FireSim repository)
 2. Run the following commands:
 
 .. code-block:: bash
@@ -37,7 +39,7 @@ Please follow along with the following steps to get setup if you already have an
     (
     git clone https://github.com/ucb-bar/chipyard -b final-tutorial-2022-isca-morning chipyard-morning
     cd chipyard-morning
-    ./scripts/init-submodules-no-riscv-tools.sh --skip-validate
+    ./scripts/init-submodules-no-riscv-tools.sh
 
     ./scripts/build-toolchains.sh ec2fast
     source env.sh
@@ -62,7 +64,7 @@ Please follow along with the following steps to get setup if you already have an
     (
     git clone https://github.com/ucb-bar/chipyard -b final-tutorial-2022-isca chipyard-afternoon
     cd chipyard-afternoon
-    ./scripts/init-submodules-no-riscv-tools.sh --skip-validate
+    ./scripts/init-submodules-no-riscv-tools.sh
 
     ./scripts/build-toolchains.sh ec2fast
     source env.sh
@@ -75,9 +77,10 @@ Please follow along with the following steps to get setup if you already have an
     make f1
     export MAKEFLAGS=-j16
 
-    cd ../sw/firesim-software
+    cd ../target-design/chipyard/software/firemarshal
     ./init-submodules.sh
     marshal -v build br-base.json
+    marshal -v install br-base.json
 
     cd ~/chipyard-afternoon/generators/sha3/software/
     git submodule update --init esp-isa-sim
@@ -107,7 +110,8 @@ Please follow along with the following steps to get setup if you already have an
 
     )
 
-3. Next copy the following contents and replace your entire ``~/.bashrc`` file with this:
+3. Next copy the following contents and replace your entire ``~/.bashrc`` file with
+   this:
 
 .. code-block:: bash
 

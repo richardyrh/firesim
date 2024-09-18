@@ -26,8 +26,16 @@ abstract class PlatformShim(implicit p: Parameters) extends LazyModule()(p) {
     top.module.genHeader(sb, target)
   }
 
-  def genVHeader(sb: StringBuilder, target: String): Unit = {
+  def genVHeader(sb: StringBuilder): Unit = {
     top.module.genVHeader(sb)
+  }
+
+  def genPartitioningHeader(sb: StringBuilder): Unit = {
+    top.module.genPartitioningConstants(sb)
+  }
+
+  def genPeerToPeerAddrMap(sb: StringBuilder): Unit = {
+    top.module.genPeerToPeerAddrMap(sb)
   }
 
   // Emit a `XDCPathToCircuitAnnotation` with the pre- and post-link circuit
